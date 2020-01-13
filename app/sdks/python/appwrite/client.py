@@ -4,10 +4,10 @@ import requests
 class Client:
     def __init__(self):
         self._self_signed = False
-        self._endpoint = 'https://https://appwrite.io/v1'
+        self._endpoint = 'https://appwrite.io/v1'
         self._global_headers = {
             'content-type': '',
-            'x-sdk-version': 'appwrite:python:1.0.0',
+            'x-sdk-version': 'appwrite:python:0.0.3',
         }
 
     def set_self_signed(self, status=True):
@@ -23,13 +23,13 @@ class Client:
         return self
 
     def set_project(self, value):
-        """Your Appwrite project ID. You can find your project ID in your Appwrite console project settings."""
+        """Your Appwrite project ID"""
 
         self._global_headers['x-appwrite-project'] = value.lower()
         return self
 
     def set_key(self, value):
-        """Your Appwrite project secret key. You can can create a new API key from your Appwrite console API keys dashboard."""
+        """Your Appwrite project secret key"""
 
         self._global_headers['x-appwrite-key'] = value.lower()
         return self
@@ -51,7 +51,8 @@ class Client:
 
         data = {}
         json = {}
-        headers = {**self._global_headers, **headers}
+        
+        self._global_headers.update(headers)
 
         if method != 'get':
             data = params
@@ -61,13 +62,16 @@ class Client:
             json = data
             data = {}
 
-        response = getattr(requests, method)(  # call method dynamically https://stackoverflow.com/a/4246075/2299554
+        response = requests.request(  # call method dynamically https://stackoverflow.com/a/4246075/2299554
+            method=method,
             url=self._endpoint + path,
             params=params,
             data=data,
             json=json,
-            headers=headers,
+            headers=self._global_headers,
             verify=self._self_signed,
         )
 
-        return response
+        response.raise_for_status()
+        
+        return response.json()

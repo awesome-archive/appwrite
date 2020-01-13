@@ -1,6 +1,6 @@
 <?php
 
-global $utopia, $request, $response;
+global $utopia, $request, $response, $version;
 
 use Utopia\Exception;
 use Utopia\Validator\Text;
@@ -14,6 +14,8 @@ use BaconQrCode\Renderer\ImageRenderer;
 use BaconQrCode\Renderer\Image\ImagickImageBackEnd;
 use BaconQrCode\Renderer\RendererStyle\RendererStyle;
 use BaconQrCode\Writer;
+
+include_once 'shared/api.php';
 
 $types = [
     'browsers' => include __DIR__.'/../config/avatars/browsers.php',
@@ -43,8 +45,8 @@ $avatarCallback = function ($type, $code, $width, $height, $quality) use ($types
     $path = $types[$type][$code];
     $type = 'png';
 
-    if (!file_exists($path)) {
-        throw new Exception('File not found in '.$path, 404);
+    if (!is_readable($path)) {
+        throw new Exception('File not readable in '.$path, 500);
     }
 
     $cache = new Cache(new Filesystem('/storage/cache/app-0')); // Limit file number or size
@@ -94,7 +96,7 @@ $utopia->get('/v1/avatars/credit-cards/:code')
     ->label('scope', 'avatars.read')
     ->label('sdk.namespace', 'avatars')
     ->label('sdk.method', 'getCreditCard')
-    ->label('sdk.description', 'Need to display your users with your billing method or there payment methods? The credit card endpoint will return you the icon of the credit card provider you need. Use width, height and quality arguments to change the output settings.')
+    ->label('sdk.description', '/docs/references/avatars/get-credit-card.md')
     ->action(function ($code, $width, $height, $quality) use ($avatarCallback) { return $avatarCallback('credit-cards', $code, $width, $height, $quality);
     });
 
@@ -107,7 +109,7 @@ $utopia->get('/v1/avatars/browsers/:code')
     ->label('scope', 'avatars.read')
     ->label('sdk.namespace', 'avatars')
     ->label('sdk.method', 'getBrowser')
-    ->label('sdk.description', 'You can use this endpoint to show different browser icons to your users, The code argument receives the browser code as appear in your user /account/sessions endpoint. Use width, height and quality arguments to change the output settings.')
+    ->label('sdk.description', '/docs/references/avatars/get-browser.md')
     ->action(function ($code, $width, $height, $quality) use ($avatarCallback) { return $avatarCallback('browsers', $code, $width, $height, $quality);
     });
 
@@ -120,7 +122,7 @@ $utopia->get('/v1/avatars/flags/:code')
     ->label('scope', 'avatars.read')
     ->label('sdk.namespace', 'avatars')
     ->label('sdk.method', 'getFlag')
-    ->label('sdk.description', 'You can use this endpoint to show different country flags icons to your users, The code argument receives the a 2 letter country code. Use width, height and quality arguments to change the output settings.')
+    ->label('sdk.description', '/docs/references/avatars/get-flag.md')
     ->action(function ($code, $width, $height, $quality) use ($avatarCallback) { return $avatarCallback('flags', $code, $width, $height, $quality);
     });
 
@@ -132,9 +134,9 @@ $utopia->get('/v1/avatars/image')
     ->label('scope', 'avatars.read')
     ->label('sdk.namespace', 'avatars')
     ->label('sdk.method', 'getImage')
-    ->label('sdk.description', 'Use this endpoint to fetch a remote image URL and crop it to any image size you want. This endpoint is very useful if you need to crop and display remote images in your app or in cases, you want to make sure a 3rd party image is properly served using a TLS protocol.')
+    ->label('sdk.description', '/docs/references/avatars/get-image.md')
     ->action(
-        function ($url, $width, $height) use ($response, $request, $version) {
+        function ($url, $width, $height) use ($response) {
             $quality = 80;
             $output = 'png';
             $date = date('D, d M Y H:i:s', time() + (60 * 60 * 24 * 45)).' GMT';  // 45 days cache
@@ -197,9 +199,9 @@ $utopia->get('/v1/avatars/favicon')
     ->label('scope', 'avatars.read')
     ->label('sdk.namespace', 'avatars')
     ->label('sdk.method', 'getFavicon')
-    ->label('sdk.description', 'Use this endpoint to fetch the favorite icon (AKA favicon) of a  any remote website URL.')
+    ->label('sdk.description', '/docs/references/avatars/get-favicon.md')
     ->action(
-        function ($url) use ($response, $request, $version) {
+        function ($url) use ($response, $version) {
             $width = 56;
             $height = 56;
             $quality = 80;
@@ -341,7 +343,7 @@ $utopia->get('/v1/avatars/favicon')
     );
 
 $utopia->get('/v1/avatars/qr')
-    ->desc('Text to QR Generator')
+    ->desc('Get QR Code')
     ->param('text', '', function () { return new Text(512); }, 'Plain text to be converted to QR code image')
     ->param('size', 400, function () { return new Range(0, 1000); }, 'QR code size. Pass an integer between 0 to 1000. Defaults to 400.', true)
     ->param('margin', 1, function () { return new Range(0, 10); }, 'Margin From Edge. Pass an integer between 0 to 10. Defaults to 1.', true)
@@ -349,7 +351,7 @@ $utopia->get('/v1/avatars/qr')
     ->label('scope', 'avatars.read')
     ->label('sdk.namespace', 'avatars')
     ->label('sdk.method', 'getQR')
-    ->label('sdk.description', 'Converts a given plain text to a QR code image. You can use the query parameters to change the size and style of the resulting image.')
+    ->label('sdk.description', '/docs/references/avatars/get-qr.md')
     ->action(
         function ($text, $size, $margin, $download) use ($response) {
             $renderer = new ImageRenderer(

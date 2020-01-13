@@ -5,20 +5,24 @@ global $utopia, $register, $response, $user, $audit, $project, $projectDB, $prov
 use Utopia\Exception;
 use Utopia\Validator\Text;
 use Utopia\Validator\Email;
+use Utopia\Audit\Audit;
+use Utopia\Audit\Adapters\MySQL as AuditAdapter;
+use Utopia\Locale\Locale;
 use Auth\Auth;
 use Auth\Validator\Password;
 use Database\Database;
 use Database\Validator\Authorization;
 use DeviceDetector\DeviceDetector;
 use GeoIp2\Database\Reader;
-use Utopia\Locale\Locale;
+
+include_once 'shared/api.php';
 
 $utopia->get('/v1/account')
     ->desc('Get Account')
     ->label('scope', 'account')
     ->label('sdk.namespace', 'account')
     ->label('sdk.method', 'get')
-    ->label('sdk.description', 'Get currently logged in user data as JSON object.')
+    ->label('sdk.description', '/docs/references/account/get.md')
     ->action(
         function () use ($response, &$user, $providers) {
             $oauthKeys = [];
@@ -50,7 +54,7 @@ $utopia->get('/v1/account/prefs')
     ->label('scope', 'account')
     ->label('sdk.namespace', 'account')
     ->label('sdk.method', 'getPrefs')
-    ->label('sdk.description', 'Get currently logged in user preferences key-value object.')
+    ->label('sdk.description', '/docs/references/account/get-prefs.md')
     ->action(
         function () use ($response, $user) {
             $prefs = $user->getAttribute('prefs', '{}');
@@ -74,7 +78,7 @@ $utopia->get('/v1/account/sessions')
     ->label('scope', 'account')
     ->label('sdk.namespace', 'account')
     ->label('sdk.method', 'getSessions')
-    ->label('sdk.description', 'Get currently logged in user list of active sessions across different devices.')
+    ->label('sdk.description', '/docs/references/account/get-sessions.md')
     ->action(
         function () use ($response, $user) {
             $tokens = $user->getAttribute('tokens', []);
@@ -131,15 +135,15 @@ $utopia->get('/v1/account/security')
     ->label('scope', 'account')
     ->label('sdk.namespace', 'account')
     ->label('sdk.method', 'getSecurity')
-    ->label('sdk.description', 'Get currently logged in user list of latest security activity logs. Each log returns user IP address, location and date and time of log.')
+    ->label('sdk.description', '/docs/references/account/get-security.md')
     ->action(
         function () use ($response, $register, $project, $user) {
-            $ad = new \Audit\Adapter\MySQL($register->get('db'));
-            $ad->setNamespace('app_'.$project->getUid());
-            $au = new \Audit\Audit($ad, $user->getUid(), $user->getAttribute('type'), '', '', '');
+            $adapter = new AuditAdapter($register->get('db'));
+            $adapter->setNamespace('app_'.$project->getUid());
+            $audit = new Audit($adapter);
             $countries = Locale::getText('countries');
 
-            $logs = $au->getLogsByUserAndActions($user->getUid(), $user->getAttribute('type', 0), [
+            $logs = $audit->getLogsByUserAndActions($user->getUid(), [
                 'auth.register',
                 'auth.confirm',
                 'auth.login',
@@ -201,7 +205,7 @@ $utopia->patch('/v1/account/name')
     ->label('scope', 'account')
     ->label('sdk.namespace', 'account')
     ->label('sdk.method', 'updateName')
-    ->label('sdk.description', 'Update currently logged in user account name.')
+    ->label('sdk.description', '/docs/references/account/update-name.md')
     ->param('name', '', function () { return new Text(100); }, 'User name')
     ->action(
         function ($name) use ($response, $user, $projectDB, $audit) {
@@ -225,7 +229,7 @@ $utopia->patch('/v1/account/password')
     ->label('scope', 'account')
     ->label('sdk.namespace', 'account')
     ->label('sdk.method', 'updatePassword')
-    ->label('sdk.description', 'Update currently logged in user password. For validation, user is required to pass the password twice.')
+    ->label('sdk.description', '/docs/references/account/update-password.md')
     ->param('password', '', function () { return new Password(); }, 'New password')
     ->param('old-password', '', function () { return new Password(); }, 'Old password')
     ->action(
@@ -254,7 +258,7 @@ $utopia->patch('/v1/account/email')
     ->label('scope', 'account')
     ->label('sdk.namespace', 'account')
     ->label('sdk.method', 'updateEmail')
-    ->label('sdk.description', 'Update currently logged in user account email address. After changing user address, user confirmation status is being reset and a new confirmation mail is sent. For security measures, user password is required to complete this request.')
+    ->label('sdk.description', '/docs/references/account/update-email.md')
     ->param('email', '', function () { return new Email(); }, 'Email Address')
     ->param('password', '', function () { return new Password(); }, 'User Password')
     ->action(
@@ -299,7 +303,7 @@ $utopia->patch('/v1/account/prefs')
     ->label('sdk.namespace', 'account')
     ->label('sdk.method', 'updatePrefs')
     ->param('prefs', '', function () { return new \Utopia\Validator\Mock();}, 'Prefs key-value JSON object string.')
-    ->label('sdk.description', 'Update currently logged in user account preferences. You can pass only the specific settings you wish to update.')
+    ->label('sdk.description', '/docs/references/account/update-prefs.md')
     ->action(
         function ($prefs) use ($response, $user, $projectDB, $audit) {
             $user = $projectDB->updateDocument(array_merge($user->getArrayCopy(), [
@@ -322,7 +326,7 @@ $utopia->delete('/v1/account')
     ->label('scope', 'account')
     ->label('sdk.namespace', 'account')
     ->label('sdk.method', 'delete')
-    ->label('sdk.description', 'Delete currently logged in user account.')
+    ->label('sdk.description', '/docs/references/account/delete.md')
     ->action(
         function () use ($response, $request, $user, $projectDB, $audit) {
             $user = $projectDB->updateDocument(array_merge($user->getArrayCopy(), [
@@ -339,11 +343,6 @@ $utopia->delete('/v1/account')
              * Data to delete
              * * Tokens
              * * Memberships
-             * * Vaults
-             * * Subscriptions
-             *
-             * Not to Delete!!
-             * * Invoices (belong to project/business not user(!) and also needed for IRS records!)
              */
 
             $audit
@@ -352,7 +351,7 @@ $utopia->delete('/v1/account')
             ;
 
             $response
-                ->addCookie(Auth::$cookieName, '', time() - 3600, '/', COOKIE_DOMAIN, ('https' == $request->getServer('REQUEST_SCHEME', 'https')), true)
+                ->addCookie(Auth::$cookieName, '', time() - 3600, '/', COOKIE_DOMAIN, ('https' == $request->getServer('REQUEST_SCHEME', 'https')), true, COOKIE_SAMESITE)
                 ->json(array('result' => 'success'));
         }
     );
