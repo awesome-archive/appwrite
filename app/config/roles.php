@@ -1,19 +1,11 @@
 <?php
 
-const ROLE_GUEST = 0;
-const ROLE_MEMBER = 1;
-const ROLE_ADMIN = 2;
-const ROLE_DEVELOPER = 3;
-const ROLE_OWNER = 4;
-const ROLE_APP = 5;
-const ROLE_SYSTEM = 6;
-const ROLE_ALL = '*';
+use Appwrite\Auth\Auth;
 
-$logged = [
+$member = [
     'public',
     'home',
     'console',
-    'auth',
     'account',
     'teams.read',
     'teams.write',
@@ -25,48 +17,74 @@ $logged = [
     'projects.write',
     'locale.read',
     'avatars.read',
-    'health.read',
+    'execution.read',
+    'execution.write',
 ];
 
 $admins = [
+    'teams.read',
+    'teams.write',
+    'documents.read',
+    'documents.write',
+    'files.read',
+    'files.write',
+    'buckets.read',
+    'buckets.write',
     'users.read',
     'users.write',
+    'databases.read',
+    'databases.write',
     'collections.read',
     'collections.write',
+    'platforms.read',
+    'platforms.write',
+    'keys.read',
+    'keys.write',
+    'webhooks.read',
+    'webhooks.write',
+    'locale.read',
+    'avatars.read',
+    'health.read',
+    'functions.read',
+    'functions.write',
+    'execution.read',
+    'execution.write',
 ];
 
 return [
-    ROLE_GUEST => [
-        'label' => 'Guest',
+    Auth::USER_ROLE_GUESTS => [
+        'label' => 'Guests',
         'scopes' => [
             'public',
             'home',
             'console',
-            'auth',
+            'documents.read',
+            'documents.write',
             'files.read',
+            'files.write',
             'locale.read',
             'avatars.read',
-            'health.read',
+            'execution.write',
         ],
     ],
-    ROLE_MEMBER => [
-        'label' => 'Member',
-        'scopes' => array_merge($logged, []),
+    Auth::USER_ROLE_USERS => [
+        'label' => 'Users',
+        'scopes' => \array_merge($member, []),
     ],
-    ROLE_ADMIN => [
+    Auth::USER_ROLE_ADMIN => [
         'label' => 'Admin',
-        'scopes' => array_merge($logged, $admins, []),
+        'scopes' => \array_merge($admins, []),
     ],
-    ROLE_DEVELOPER => [
+    Auth::USER_ROLE_DEVELOPER => [
         'label' => 'Developer',
-        'scopes' => array_merge($logged, $admins, []),
+        'scopes' => \array_merge($admins, []),
     ],
-    ROLE_OWNER => [
+    Auth::USER_ROLE_OWNER => [
         'label' => 'Owner',
-        'scopes' => array_merge($logged, $admins, []),
+        'scopes' => \array_merge($member, $admins, []),
     ],
-    ROLE_APP => [
-        'label' => 'Application',
-        'scopes' => ['public'],
+    Auth::USER_ROLE_APPS => [
+        'label' => 'Applications',
+        'scopes' => ['health.read'],
     ],
 ];

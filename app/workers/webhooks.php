@@ -1,100 +1,98 @@
 <?php
 
-require_once __DIR__.'/../init.php';
+use Appwrite\Resque\Worker;
+use Utopia\App;
+use Utopia\CLI\Console;
+use Utopia\Database\Document;
 
-cli_set_process_title('Webhooks V1 Worker');
+require_once __DIR__ . '/../init.php';
 
-echo APP_NAME.' webhooks worker v1 has started';
+Console::title('Webhooks V1 Worker');
+Console::success(APP_NAME . ' webhooks worker v1 has started');
 
-use Database\Database;
-use Database\Validator\Authorization;
-
-class WebhooksV1
+class WebhooksV1 extends Worker
 {
-    public $args = [];
+    protected array $errors = [];
 
-    public function setUp()
+    public function getName(): string
+    {
+        return "webhooks";
+    }
+
+    public function init(): void
     {
     }
 
-    public function perform()
+    public function run(): void
     {
-        global $consoleDB, $version;
-
-        $errors = [];
-
-        // Event
-        $projectId = $this->args['projectId'];
-        $event = $this->args['event'];
+        $events = $this->args['events'];
         $payload = json_encode($this->args['payload']);
-
-        // Webhook
-
-        Authorization::disable();
-
-        $project = $consoleDB->getDocument($projectId);
-
-        Authorization::enable();
-
-        if (is_null($project->getUid()) || Database::SYSTEM_COLLECTION_PROJECTS !== $project->getCollection()) {
-            throw new Exception('Project Not Found');
-        }
+        $project = new Document($this->args['project']);
+        $user = new Document($this->args['user'] ?? []);
 
         foreach ($project->getAttribute('webhooks', []) as $webhook) {
-            if (!(isset($webhook['events']) && is_array($webhook['events']) && in_array($event, $webhook['events']))) {
-                continue;
+            if (array_intersect($webhook->getAttribute('events', []), $events)) {
+                $this->execute($events, $payload, $webhook, $user, $project);
             }
-
-            $name = (isset($webhook['name'])) ? $webhook['name'] : '';
-            $signature = (isset($webhook['signature'])) ? $webhook['signature'] : 'not-yet-implemented';
-            $url = (isset($webhook['url'])) ? $webhook['url'] : '';
-            $security = (isset($webhook['security'])) ? (bool) $webhook['security'] : true;
-            $httpUser = (isset($webhook['httpUser'])) ? $webhook['httpUser'] : null;
-            $httpPass = (isset($webhook['httpPass'])) ? $webhook['httpPass'] : null;
-
-            $ch = curl_init($url);
-
-            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST');
-            curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
-            curl_setopt($ch, CURLOPT_HEADER, 0);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-            curl_setopt($ch, CURLOPT_USERAGENT, sprintf(APP_USERAGENT, $version));
-            curl_setopt(
-                $ch,
-                CURLOPT_HTTPHEADER,
-                [
-                    'Content-Type: application/json',
-                    'Content-Length: '.strlen($payload),
-                    'X-'.APP_NAME.'-Event: '.$event,
-                    'X-'.APP_NAME.'-Webhook-Name: '.$name,
-                    'X-'.APP_NAME.'-Webhook-Signature: '.$signature,
-                ]
-            );
-
-            if (!$security) {
-                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-            }
-
-            if (!empty($httpUser) && !empty($httpPass)) {
-                curl_setopt($ch, CURLOPT_USERPWD, "$httpUser:$httpPass");
-                curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
-            }
-
-            if (false === curl_exec($ch)) {
-                $errors[] = curl_error($ch).' in event '.$event.' for webhook '.$name;
-            }
-
-            curl_close($ch);
         }
 
-        if (!empty($errors)) {
-            throw new Exception(implode(" / \n\n", $errors));
+        if (!empty($this->errors)) {
+            throw new Exception(\implode(" / \n\n", $this->errors));
         }
     }
 
-    public function tearDown()
+    protected function execute(array $events, string $payload, Document $webhook, Document $user, Document $project): void
     {
-        // ... Remove environment for this job
+        $url = \rawurldecode($webhook->getAttribute('url'));
+        $signatureKey = $webhook->getAttribute('signatureKey');
+        $signature = base64_encode(hash_hmac('sha1', $url . $payload, $signatureKey, true));
+        $httpUser = $webhook->getAttribute('httpUser');
+        $httpPass = $webhook->getAttribute('httpPass');
+        $ch = \curl_init($webhook->getAttribute('url'));
+
+        \curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST');
+        \curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+        \curl_setopt($ch, CURLOPT_HEADER, 0);
+        \curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+        \curl_setopt($ch, CURLOPT_USERAGENT, \sprintf(
+            APP_USERAGENT,
+            App::getEnv('_APP_VERSION', 'UNKNOWN'),
+            App::getEnv('_APP_SYSTEM_SECURITY_EMAIL_ADDRESS', APP_EMAIL_SECURITY)
+        ));
+        \curl_setopt(
+            $ch,
+            CURLOPT_HTTPHEADER,
+            [
+                'Content-Type: application/json',
+                'Content-Length: ' . \strlen($payload),
+                'X-' . APP_NAME . '-Webhook-Id: ' . $webhook->getId(),
+                'X-' . APP_NAME . '-Webhook-Events: ' . implode(',', $events),
+                'X-' . APP_NAME . '-Webhook-Name: ' . $webhook->getAttribute('name', ''),
+                'X-' . APP_NAME . '-Webhook-User-Id: ' . $user->getId(),
+                'X-' . APP_NAME . '-Webhook-Project-Id: ' . $project->getId(),
+                'X-' . APP_NAME . '-Webhook-Signature: ' . $signature,
+            ]
+        );
+
+        if (!$webhook->getAttribute('security', true)) {
+            \curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+            \curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        }
+
+        if (!empty($httpUser) && !empty($httpPass)) {
+            \curl_setopt($ch, CURLOPT_USERPWD, "$httpUser:$httpPass");
+            \curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+        }
+
+        if (false === \curl_exec($ch)) {
+            $this->errors[] = \curl_error($ch) . ' in events ' . implode(', ', $events) . ' for webhook ' . $webhook->getAttribute('name');
+        }
+
+        \curl_close($ch);
+    }
+
+    public function shutdown(): void
+    {
+        $this->errors = [];
     }
 }

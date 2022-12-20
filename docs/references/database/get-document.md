@@ -1,1 +1,0 @@
-Get document by its unique ID. This endpoint response returns a JSON object with the document data.

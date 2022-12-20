@@ -1,42 +1,62 @@
 <?php
 
-require_once __DIR__.'/../init.php';
+use Appwrite\Event\Event;
+use Appwrite\Resque\Worker;
+use Utopia\Audit\Audit;
+use Utopia\CLI\Console;
+use Utopia\Database\Document;
 
-cli_set_process_title('Audits V1 Worker');
+require_once __DIR__ . '/../init.php';
 
-echo APP_NAME.' audits worker v1 has started';
+Console::title('Audits V1 Worker');
+Console::success(APP_NAME . ' audits worker v1 has started');
 
-class AuditsV1
+class AuditsV1 extends Worker
 {
-    public $args = [];
+    public function getName(): string
+    {
+        return "audits";
+    }
 
-    public function setUp()
+    public function init(): void
     {
     }
 
-    public function perform()
+    public function run(): void
     {
-        global $register;
-
-        $projectId = $this->args['projectId'];
-        $userId = $this->args['userId'];
         $event = $this->args['event'];
+        $payload = $this->args['payload'];
+        $mode = $this->args['mode'];
         $resource = $this->args['resource'];
         $userAgent = $this->args['userAgent'];
         $ip = $this->args['ip'];
-        $data = $this->args['data'];
-        $pdo = $register->get('db', true);
-        $adapter = new Audit\Adapter\MySQL($pdo);
 
-        $adapter->setNamespace('app_'.$projectId);
+        $user = new Document($this->args['user']);
+        $project = new Document($this->args['project']);
 
-        $audit = new \Audit\Audit($adapter, $userId, 0, $userAgent, $ip, '');
+        $userName = $user->getAttribute('name', '');
+        $userEmail = $user->getAttribute('email', '');
 
-        $audit->log($event, $resource, $data);
+        $dbForProject = $this->getProjectDB($project->getId());
+        $audit = new Audit($dbForProject);
+        $audit->log(
+            userId: $user->getId(),
+            // Pass first, most verbose event pattern
+            event: $event,
+            resource: $resource,
+            userAgent: $userAgent,
+            ip: $ip,
+            location: '',
+            data: [
+                'userName' => $userName,
+                'userEmail' => $userEmail,
+                'mode' => $mode,
+                'data' => $payload,
+            ]
+        );
     }
 
-    public function tearDown()
+    public function shutdown(): void
     {
-        // ... Remove environment for this job
     }
 }

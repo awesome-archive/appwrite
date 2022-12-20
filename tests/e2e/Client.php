@@ -6,15 +6,15 @@ use Exception;
 
 class Client
 {
-    const METHOD_GET = 'GET';
-    const METHOD_POST = 'POST';
-    const METHOD_PUT = 'PUT';
-    const METHOD_PATCH = 'PATCH';
-    const METHOD_DELETE = 'DELETE';
-    const METHOD_HEAD = 'HEAD';
-    const METHOD_OPTIONS = 'OPTIONS';
-    const METHOD_CONNECT = 'CONNECT';
-    const METHOD_TRACE = 'TRACE';
+    public const METHOD_GET = 'GET';
+    public const METHOD_POST = 'POST';
+    public const METHOD_PUT = 'PUT';
+    public const METHOD_PATCH = 'PATCH';
+    public const METHOD_DELETE = 'DELETE';
+    public const METHOD_HEAD = 'HEAD';
+    public const METHOD_OPTIONS = 'OPTIONS';
+    public const METHOD_CONNECT = 'CONNECT';
+    public const METHOD_TRACE = 'TRACE';
 
     /**
      * Is Self Signed Certificates Allowed?
@@ -54,9 +54,9 @@ class Client
      *
      * @param string $value
      *
-     * @return Client
+     * @return self $this
      */
-    public function setProject($value)
+    public function setProject(string $value): self
     {
         $this->addHeader('X-Appwrite-Project', $value);
 
@@ -70,9 +70,9 @@ class Client
      *
      * @param string $value
      *
-     * @return Client
+     * @return self $this
      */
-    public function setKey($value)
+    public function setKey(string $value): self
     {
         $this->addHeader('X-Appwrite-Key', $value);
 
@@ -84,9 +84,9 @@ class Client
      *
      * @param string $value
      *
-     * @return Client
+     * @return self $this
      */
-    public function setLocale($value)
+    public function setLocale(string $value): self
     {
         $this->addHeader('X-Appwrite-Locale', $value);
 
@@ -98,32 +98,31 @@ class Client
      *
      * @param string $value
      *
-     * @return Client
+     * @return self $this
      */
-    public function setMode($value)
+    public function setMode(string $value): self
     {
         $this->addHeader('X-Appwrite-Mode', $value);
 
         return $this;
     }
 
-
-    /***
-     * @param bool $status
-     * @return $this
+    /**
+     * @param bool $status true
+     * @return self $this
      */
-    public function setSelfSigned($status = true)
+    public function setSelfSigned(bool $status = true): self
     {
         $this->selfSigned = $status;
 
         return $this;
     }
 
-    /***
-     * @param $endpoint
-     * @return $this
+    /**
+     * @param string $endpoint
+     * @return self $this
      */
-    public function setEndpoint($endpoint)
+    public function setEndpoint(string $endpoint): self
     {
         $this->endpoint = $endpoint;
 
@@ -131,13 +130,23 @@ class Client
     }
 
     /**
-     * @param $key
-     * @param $value
+     * @return string
      */
-    public function addHeader($key, $value)
+    public function getEndpoint(): string
+    {
+        return $this->endpoint;
+    }
+
+    /**
+     * @param string $key
+     * @param string $value
+     *
+     * @return self $this
+     */
+    public function addHeader(string $key, string $value): self
     {
         $this->headers[strtolower($key)] = strtolower($value);
-        
+
         return $this;
     }
 
@@ -150,10 +159,11 @@ class Client
      * @param string $path
      * @param array $params
      * @param array $headers
+     * @param bool $decode
      * @return array|string
      * @throws Exception
      */
-    public function call($method, $path = '', $headers = array(), array $params = array())
+    public function call(string $method, string $path = '', array $headers = [], array $params = [], bool $decode = true)
     {
         $headers            = array_merge($this->headers, $headers);
         $ch                 = curl_init($this->endpoint . $path . (($method == self::METHOD_GET && !empty($params)) ? '?' . http_build_query($params) : ''));
@@ -181,10 +191,14 @@ class Client
             unset($headers[$i]);
         }
 
+        curl_setopt($ch, CURLOPT_PATH_AS_IS, 1);
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-        curl_setopt($ch, CURLOPT_USERAGENT, php_uname('s') . '-' . php_uname('r') . ':php-' . phpversion());
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.77 Safari/537.36');
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 0);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
         curl_setopt($ch, CURLOPT_HEADERFUNCTION, function ($curl, $header) use (&$responseHeaders) {
             $len = strlen($header);
             $header = explode(':', $header, 2);
@@ -209,13 +223,22 @@ class Client
         }
 
         $responseBody   = curl_exec($ch);
-        $responseType   = (isset($responseHeaders['content-type'])) ? $responseHeaders['content-type'] : '';
+        $responseType   = $responseHeaders['content-type'] ?? '';
         $responseStatus = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 
-        switch (substr($responseType, 0, strpos($responseType, ';'))) {
-            case 'application/json':
-                $responseBody = json_decode($responseBody, true);
-            break;
+        if ($decode) {
+            switch (substr($responseType, 0, strpos($responseType, ';'))) {
+                case 'application/json':
+                    $json = json_decode($responseBody, true);
+
+                    if ($json === null) {
+                        throw new Exception('Failed to parse response: ' . $responseBody);
+                    }
+
+                    $responseBody = $json;
+                    $json = null;
+                    break;
+            }
         }
 
         if ((curl_errno($ch)/* || 200 != $responseStatus*/)) {
@@ -225,6 +248,10 @@ class Client
         curl_close($ch);
 
         $responseHeaders['status-code'] = $responseStatus;
+
+        if ($responseStatus === 500) {
+            echo 'Server error(' . $method . ': ' . $path . '. Params: ' . json_encode($params) . '): ' . json_encode($responseBody) . "\n";
+        }
 
         return [
             'headers' => $responseHeaders,
@@ -238,7 +265,7 @@ class Client
      * @param string $cookie
      * @return array
      */
-    public function parseCookie($cookie)
+    public function parseCookie(string $cookie): array
     {
         $cookies = [];
 
@@ -254,7 +281,7 @@ class Client
      * @param string $prefix
      * @return array
      */
-    protected function flatten(array $data, $prefix = '')
+    protected function flatten(array $data, string $prefix = ''): array
     {
         $output = [];
 
